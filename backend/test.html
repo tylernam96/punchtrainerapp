@@ -115,6 +115,39 @@
             border-left: 3px solid #4caf50;
         }
         
+        .punch-card {
+            border-left: 4px solid;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        
+        .punch-card.best {
+            border-color: #4caf50;
+            background: #f1f8e9;
+        }
+        
+        .punch-card.normal {
+            border-color: #2196f3;
+            background: #f5f5f5;
+        }
+        
+        .punch-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .score-badge {
+            float: right;
+            font-weight: bold;
+        }
+        
+        .score-excellent { color: #4caf50; }
+        .score-good { color: #ff9800; }
+        .score-poor { color: #f44336; }
+        
         .tips {
             background: #fff3e0;
             padding: 15px;
@@ -126,6 +159,17 @@
             margin: 10px 0;
             padding-left: 20px;
         }
+        
+        .recommendation {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        
+        .priority-high { border-left: 4px solid #f44336; }
+        .priority-medium { border-left: 4px solid #ff9800; }
+        .priority-low { border-left: 4px solid #4caf50; }
     </style>
 </head>
 <body>
@@ -152,13 +196,23 @@
                 <li><strong>Angle:</strong> Side view works best</li>
                 <li><strong>Visibility:</strong> Make sure you're clearly visible</li>
                 <li><strong>Lighting:</strong> Good lighting helps detection</li>
-                <li><strong>Technique:</strong> Throw 2-3 clear jabs</li>
+                <li><strong>Technique:</strong> Throw 3-8 clear jabs</li>
                 <li><strong>Background:</strong> Plain background is ideal</li>
             </ul>
         </div>
     </div>
 
     <script>
+        function getScoreClass(score) {
+            if (score >= 70) return 'score-excellent';
+            if (score >= 50) return 'score-good';
+            return 'score-poor';
+        }
+        
+        function getPriorityClass(priority) {
+            return `priority-${priority.toLowerCase()}`;
+        }
+        
         document.getElementById('uploadForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
@@ -167,14 +221,21 @@
             const resultsDiv = document.getElementById('results');
             const analyzeBtn = document.getElementById('analyzeBtn');
             
+            // Clear previous results
+            resultsDiv.innerHTML = '';
+            
             if (!fileInput.files[0]) {
                 statusDiv.innerHTML = '<div class="error">Please select a video file</div>';
                 return;
             }
             
+            console.log('=== FRONTEND DEBUG START ===');
+            console.log('Selected file:', fileInput.files[0].name);
+            console.log('File size:', fileInput.files[0].size, 'bytes');
+            console.log('File type:', fileInput.files[0].type);
+            
             // Show loading status
             statusDiv.innerHTML = '<div class="loading">🔄 Uploading and analyzing video... This may take 30-60 seconds.</div>';
-            resultsDiv.innerHTML = '';
             analyzeBtn.disabled = true;
             analyzeBtn.textContent = 'Analyzing...';
             
@@ -183,123 +244,263 @@
             formData.append('video', fileInput.files[0]);
             
             try {
+                console.log('=== SENDING REQUEST ===');
+                console.log('URL: http://localhost:3000/analyze-video');
+                
                 // Upload and analyze
                 const response = await fetch('http://localhost:3000/analyze-video', {
                     method: 'POST',
                     body: formData
                 });
                 
-                const result = await response.json();
+                console.log('=== RESPONSE RECEIVED ===');
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
                 
-                if (response.ok && result.success) {
-                    statusDiv.innerHTML = '<div class="success">✅ Analysis complete!</div>';
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('=== PARSED RESPONSE ===');
+                    console.log('Full result:', result);
+                    console.log('Result type:', typeof result);
+                    console.log('Result keys:', Object.keys(result));
                     
-                    const analysis = result.analysis;
+                    // Check for different types of responses
+                    if (result.error) {
+                        console.log('=== ERROR RESPONSE ===');
+                        console.log('Error:', result.error);
+                        
+                        statusDiv.innerHTML = `
+                            <div class="error">
+                                <strong>❌ Analysis Error:</strong><br>
+                                ${result.error}<br>
+                                ${result.details ? `<small>Details: ${result.details}</small>` : ''}
+                            </div>
+                        `;
+                        return;
+                    }
                     
-                    resultsDiv.innerHTML = `
-                        <h2>📊 Detailed Analysis Results</h2>
+                    if (result.success && result.analysis) {
+                        console.log('=== SUCCESS RESPONSE ===');
+                        console.log('Analysis keys:', Object.keys(result.analysis));
+                        console.log('Analysis type:', result.analysis.analysis_type);
                         
-                        <div class="analysis-section">
-                            <h4>⏱️ Timing Analysis</h4>
-                            <div class="metric">
-                                <span><strong>Extension Time:</strong></span>
-                                <span>${analysis.timing.extension_time_seconds.toFixed(2)}s (${analysis.timing.extension_frames} frames)</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Return Time:</strong></span>
-                                <span>${analysis.timing.return_time_seconds.toFixed(2)}s (${analysis.timing.return_frames} frames)</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Max Extension Angle:</strong></span>
-                                <span>${analysis.timing.max_extension_angle.toFixed(1)}°</span>
-                            </div>
-                        </div>
+                        statusDiv.innerHTML = '<div class="success">✅ Analysis complete!</div>';
                         
-                        <div class="analysis-section">
-                            <h4>🔄 Hip Rotation</h4>
-                            <div class="metric">
-                                <span><strong>Maximum Rotation:</strong></span>
-                                <span>${analysis.hip_rotation.max_rotation_degrees.toFixed(1)}°</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Average Rotation:</strong></span>
-                                <span>${analysis.hip_rotation.average_rotation.toFixed(1)}°</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Rotation Range:</strong></span>
-                                <span>${analysis.hip_rotation.rotation_range.toFixed(1)}°</span>
-                            </div>
-                        </div>
+                        const analysis = result.analysis;
                         
-                        <div class="analysis-section">
-                            <h4>👣 Footwork & Balance</h4>
-                            <div class="metric">
-                                <span><strong>Stance Stability:</strong></span>
-                                <span>${analysis.footwork.stable_stance ? '✅ Stable' : '⚠️ Movement detected'}</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Weight Balance:</strong></span>
-                                <span>${analysis.balance.maintains_balance ? '✅ Well balanced' : '⚠️ Weight shift detected'}</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Max Weight Shift:</strong></span>
-                                <span>${(analysis.balance.max_weight_shift * 100).toFixed(1)}%</span>
-                            </div>
-                        </div>
+                        // Check if this is multi-punch analysis
+                        if (analysis.analysis_type === 'multi_punch') {
+                            resultsDiv.innerHTML = `
+                                <h2>🥊 Multi-Punch Analysis Results</h2>
+                                
+                                <div class="analysis-section">
+                                    <h4>📊 Overall Performance</h4>
+                                    <div class="metric">
+                                        <span><strong>Punches Detected:</strong></span>
+                                        <span>${analysis.summary.total_punches_detected}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Average Quality Score:</strong></span>
+                                        <span class="${getScoreClass(analysis.summary.average_quality_score)}">${analysis.summary.average_quality_score.toFixed(1)}/100</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Best Punch Score:</strong></span>
+                                        <span class="${getScoreClass(analysis.summary.best_punch_score)}">${analysis.summary.best_punch_score.toFixed(1)}/100</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Consistency Score:</strong></span>
+                                        <span class="${getScoreClass(analysis.summary.consistency_score)}">${analysis.summary.consistency_score.toFixed(1)}/100</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Punch Rate:</strong></span>
+                                        <span>${analysis.summary.average_punch_rate.toFixed(1)} punches/min</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="analysis-section">
+                                    <h4>🎯 Individual Punch Analysis</h4>
+                                    ${analysis.individual_punches.map((punch, index) => {
+                                        const isTopPunch = punch.quality_score === analysis.summary.best_punch_score;
+                                        return `
+                                        <div class="punch-card ${isTopPunch ? 'best' : 'normal'}">
+                                            <h5>
+                                                Punch #${punch.punch_number} 
+                                                ${isTopPunch ? '⭐ (Best)' : ''} 
+                                                <span class="score-badge ${getScoreClass(punch.quality_score)}">
+                                                    ${punch.quality_score}/100
+                                                </span>
+                                            </h5>
+                                            
+                                            <div class="punch-stats">
+                                                <div>
+                                                    <strong>⏱️ Timing:</strong><br>
+                                                    Extension: ${punch.timing.extension_time.toFixed(2)}s<br>
+                                                    Return: ${punch.timing.return_time.toFixed(2)}s<br>
+                                                    Max Angle: ${punch.timing.max_extension_angle.toFixed(1)}°
+                                                </div>
+                                                <div>
+                                                    <strong>🔄 Hip & Balance:</strong><br>
+                                                    Hip Rotation: ${punch.hip_rotation.max_rotation_degrees.toFixed(1)}°<br>
+                                                    Balance: ${punch.balance.maintains_balance ? '✅ Good' : '⚠️ Needs work'}<br>
+                                                    Stance: ${punch.balance.stable_stance ? '✅ Stable' : '⚠️ Moving'}
+                                                </div>
+                                            </div>
+                                            
+                                            <div style="margin-top: 10px;">
+                                                <strong>Quick Feedback:</strong>
+                                                <ul style="margin: 5px 0; padding-left: 20px; font-size: 0.9em;">
+                                                    ${punch.feedback.slice(0, 3).map(fb => `<li>${fb}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                                
+                                <div class="analysis-section">
+                                    <h4>💭 Overall Feedback</h4>
+                                    <ul class="feedback-list">
+                                        ${analysis.overall_feedback.map(item => `<li>${item}</li>`).join('')}
+                                    </ul>
+                                </div>
+                                
+                                ${analysis.recommendations && analysis.recommendations.length > 0 ? `
+                                <div class="analysis-section">
+                                    <h4>📚 Training Recommendations</h4>
+                                    ${analysis.recommendations.map(rec => `
+                                        <div class="recommendation ${getPriorityClass(rec.priority)}">
+                                            <strong>${rec.area}</strong> 
+                                            <span style="float: right; color: ${rec.priority === 'High' ? '#f44336' : rec.priority === 'Medium' ? '#ff9800' : '#4caf50'}; font-size: 0.8em; font-weight: bold;">
+                                                ${rec.priority} Priority
+                                            </span>
+                                            <br>
+                                            <em>Issue:</em> ${rec.issue}<br>
+                                            <em>Suggestion:</em> ${rec.suggestion}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                ` : ''}
+                                
+                                <div class="analysis-section">
+                                    <h4>📈 Video Statistics</h4>
+                                    <div class="metric">
+                                        <span><strong>Total Frames:</strong></span>
+                                        <span>${result.total_frames}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Analyzed Frames:</strong></span>
+                                        <span>${result.analyzed_frames}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Duration:</strong></span>
+                                        <span>${result.duration_seconds.toFixed(2)}s</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Frame Rate:</strong></span>
+                                        <span>${result.fps.toFixed(1)} FPS</span>
+                                    </div>
+                                </div>
+                            `;
+                        } else if (analysis.analysis_type === 'simple_detection') {
+                            // Handle simple detection fallback
+                            resultsDiv.innerHTML = `
+                                <h2>📊 Simple Analysis Results</h2>
+                                
+                                <div class="analysis-section">
+                                    <h4>📋 Analysis Summary</h4>
+                                    <div class="metric">
+                                        <span><strong>Estimated Punches:</strong></span>
+                                        <span>${analysis.summary.estimated_punches}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Duration:</strong></span>
+                                        <span>${analysis.summary.video_duration.toFixed(2)}s</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span><strong>Extension Range:</strong></span>
+                                        <span>${analysis.summary.extension_range.toFixed(3)}</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="analysis-section">
+                                    <h4>📝 Feedback</h4>
+                                    <ul class="feedback-list">
+                                        ${analysis.feedback.map(item => `<li>${item}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            `;
+                        } else {
+                            // Fallback for other analysis types
+                            resultsDiv.innerHTML = `
+                                <h2>📊 Analysis Results</h2>
+                                <div class="analysis-section">
+                                    <h4>📝 Feedback</h4>
+                                    <ul class="feedback-list">
+                                        ${analysis.feedback ? analysis.feedback.map(item => `<li>${item}</li>`).join('') : '<li>Analysis completed but no feedback available</li>'}
+                                    </ul>
+                                </div>
+                                <div class="analysis-section">
+                                    <h4>📊 Raw Data</h4>
+                                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 0.8em;">
+                                        ${JSON.stringify(analysis, null, 2)}
+                                    </pre>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        console.log('=== UNEXPECTED RESPONSE ===');
+                        console.log('Success field:', result.success);
+                        console.log('Has analysis:', !!result.analysis);
                         
-                        <div class="analysis-section">
-                            <h4>💪 Extension & Defense</h4>
-                            <div class="metric">
-                                <span><strong>Full Extension Achieved:</strong></span>
-                                <span>${analysis.extension.full_extension_achieved ? '✅ Yes' : '⚠️ Needs improvement'}</span>
+                        statusDiv.innerHTML = `
+                            <div class="error">
+                                ❌ Unexpected response format<br>
+                                <small>Check browser console for details</small>
                             </div>
-                            <div class="metric">
-                                <span><strong>Maximum Reach:</strong></span>
-                                <span>${(analysis.extension.max_reach * 100).toFixed(1)}% of arm length</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Chin Protection:</strong></span>
-                                <span>${analysis.defense.shoulder_guards_chin ? '✅ Good' : '⚠️ Needs work'}</span>
-                            </div>
-                        </div>
-                        
-                        <div class="analysis-section">
-                            <h4>📝 Personalized Feedback</h4>
-                            <ul class="feedback-list">
-                                ${analysis.feedback.map(item => `<li>${item}</li>`).join('')}
-                            </ul>
-                        </div>
-                        
-                        <div class="analysis-section">
-                            <h4>📈 Video Stats</h4>
-                            <div class="metric">
-                                <span><strong>Total Frames:</strong></span>
-                                <span>${result.total_frames}</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Analyzed Frames:</strong></span>
-                                <span>${result.analyzed_frames}</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Duration:</strong></span>
-                                <span>${result.duration_seconds.toFixed(2)}s</span>
-                            </div>
-                            <div class="metric">
-                                <span><strong>Frame Rate:</strong></span>
-                                <span>${result.fps.toFixed(1)} FPS</span>
-                            </div>
-                        </div>
-                    `;
+                        `;
+                    }
+                    
                 } else {
-                    statusDiv.innerHTML = `<div class="error">❌ Error: ${result.error || 'Analysis failed'}</div>`;
+                    console.log('=== HTTP ERROR RESPONSE ===');
+                    const errorText = await response.text();
+                    console.log('Error response text:', errorText);
+                    
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        statusDiv.innerHTML = `
+                            <div class="error">
+                                <strong>❌ Server Error (${response.status}):</strong><br>
+                                ${errorJson.error || 'Unknown error'}<br>
+                                ${errorJson.details ? `<small>Details: ${errorJson.details}</small>` : ''}
+                            </div>
+                        `;
+                    } catch (e) {
+                        statusDiv.innerHTML = `
+                            <div class="error">
+                                <strong>❌ Server Error (${response.status}):</strong><br>
+                                ${errorText}
+                            </div>
+                        `;
+                    }
                 }
                 
             } catch (error) {
-                statusDiv.innerHTML = `<div class="error">🌐 Network error: ${error.message}</div>`;
-                console.error('Upload error:', error);
+                console.log('=== NETWORK/FETCH ERROR ===');
+                console.log('Error type:', error.constructor.name);
+                console.log('Error message:', error.message);
+                console.log('Full error:', error);
+                
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        <strong>🌐 Network Error:</strong><br>
+                        ${error.message}<br>
+                        <small>Check that the server is running on localhost:3000</small>
+                    </div>
+                `;
             } finally {
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = 'Analyze Video';
+                console.log('=== FRONTEND DEBUG END ===');
             }
         });
     </script>

@@ -4,6 +4,18 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import math
+import os
+import io
+from punch_segmentation import detect_individual_punches, analyze_individual_punch
+
+# Suppress MediaPipe warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import logging
+logging.getLogger('mediapipe').setLevel(logging.ERROR)
+
+# Redirect stderr to null to prevent mixing with JSON output
+import io
+sys.stderr = io.StringIO()
 
 def calculate_angle(a, b, c):
     """Calculate angle between three points"""
@@ -17,7 +29,7 @@ def calculate_angle(a, b, c):
     if angle > 180.0:
         angle = 360 - angle
         
-    return float(angle)  # Convert to regular Python float
+    return float(angle)
 
 def calculate_distance(point1, point2):
     """Calculate Euclidean distance between two points"""
@@ -58,6 +70,8 @@ def analyze_punch_video(video_path):
     fps = float(cap.get(cv2.CAP_PROP_FPS))
     frame_data = []
     frame_count = 0
+    
+    print(f"Processing video at {fps} FPS...")
     
     while True:
         ret, frame = cap.read()
@@ -101,7 +115,6 @@ def analyze_punch_video(video_path):
                 
                 if shoulder_norm > 0 and hip_norm > 0:
                     cos_angle = np.dot(shoulder_vector, hip_vector) / (shoulder_norm * hip_norm)
-                    # Clamp cos_angle to valid range [-1, 1]
                     cos_angle = np.clip(cos_angle, -1.0, 1.0)
                     hip_rotation = float(abs(np.degrees(np.arccos(cos_angle))))
                 else:
@@ -110,7 +123,7 @@ def analyze_punch_video(video_path):
                 # Foot position tracking
                 foot_separation = calculate_distance(left_ankle, right_ankle)
                 
-                # Weight distribution (simplified - based on body center vs foot position)
+                # Weight distribution (simplified)
                 body_center_x = (left_shoulder[0] + right_shoulder[0] + left_hip[0] + right_hip[0]) / 4
                 foot_center_x = (left_ankle[0] + right_ankle[0]) / 2
                 weight_shift = float(abs(body_center_x - foot_center_x))
@@ -118,8 +131,8 @@ def analyze_punch_video(video_path):
                 # Hand extension distance from body
                 hand_extension = calculate_distance(right_wrist, right_shoulder)
                 
-                # Chin protection (shoulder height relative to nose)
-                chin_protection = float(right_shoulder[1] - nose[1])  # Negative means shoulder is higher
+                # Chin protection
+                chin_protection = float(right_shoulder[1] - nose[1])
                 
                 frame_data.append({
                     'frame': frame_count,
@@ -137,15 +150,16 @@ def analyze_punch_video(video_path):
                 })
                 
             except (IndexError, AttributeError) as e:
-                # Skip frames where landmarks aren't detected properly
                 pass
         
         frame_count += 1
     
     cap.release()
     
-    # Analyze the collected data
-    analysis_results = perform_detailed_analysis(frame_data, fps)
+    print(f"Processed {frame_count} frames, {len(frame_data)} with pose data")
+    
+    # Perform segmented analysis
+    analysis_results = perform_segmented_analysis(frame_data, fps)
     
     result = {
         "success": True,
@@ -156,136 +170,166 @@ def analyze_punch_video(video_path):
         "analysis": analysis_results
     }
     
-    # Convert all numpy types to Python native types
     return convert_numpy_types(result)
 
-def perform_detailed_analysis(frame_data, fps):
+def perform_segmented_analysis(frame_data, fps):
+    """Perform multi-punch segmented analysis"""
+    
     if not frame_data:
         return {"error": "No valid frames to analyze"}
     
-    analysis = {}
-    feedback = []
+    print("Starting punch segmentation...")
     
-    # 1. Extension and Return Timing
+    # Detect individual punches
+    punches = detect_individual_punches(frame_data, fps)
+    
+    if not punches:
+        print("No punches detected, falling back to single-sequence analysis")
+        return perform_fallback_analysis(frame_data, fps)
+    
+    print(f"Detected {len(punches)} individual punches")
+    
+    # Analyze each punch individually
+    individual_analyses = []
+    quality_scores = []
+    
+    for punch_segment in punches:
+        punch_analysis = analyze_individual_punch(frame_data, punch_segment, fps)
+        if punch_analysis:
+            individual_analyses.append(punch_analysis)
+            quality_scores.append(punch_analysis['quality_score'])
+    
+    if not individual_analyses:
+        return {"error": "Failed to analyze detected punches"}
+    
+    # Overall analysis
+    analysis = {
+        'analysis_type': 'multi_punch',
+        'summary': {
+            'total_punches_detected': len(punches),
+            'punches_analyzed': len(individual_analyses),
+            'video_duration': float(frame_data[-1]['timestamp']),
+            'average_punch_rate': float(len(punches) / frame_data[-1]['timestamp'] * 60),
+            'average_quality_score': float(np.mean(quality_scores)),
+            'best_punch_score': float(max(quality_scores)),
+            'consistency_score': float(100 - (np.std(quality_scores) * 2))  # Higher std = lower consistency
+        },
+        'individual_punches': individual_analyses,
+        'overall_feedback': generate_overall_feedback(individual_analyses, quality_scores),
+        'recommendations': generate_recommendations(individual_analyses)
+    }
+    
+    return analysis
+
+def perform_fallback_analysis(frame_data, fps):
+    """Fallback analysis for videos where punch segmentation fails"""
+    
+    # Simple analysis treating the whole video as one sequence
     arm_angles = [frame['right_arm_angle'] for frame in frame_data]
-    max_extension_frame = int(np.argmax(arm_angles))
-    min_angle_frame = int(np.argmin(arm_angles))
-    
-    extension_time = float((max_extension_frame - min_angle_frame) / fps)
-    return_time = float((len(frame_data) - max_extension_frame) / fps)
-    
-    analysis['timing'] = {
-        'extension_time_seconds': extension_time,
-        'extension_frames': max_extension_frame - min_angle_frame,
-        'return_time_seconds': return_time,
-        'return_frames': len(frame_data) - max_extension_frame,
-        'max_extension_angle': float(max(arm_angles))
-    }
-    
-    # Timing feedback
-    if extension_time > 0.5:  # More than half a second
-        feedback.append("⚠️ Your jab extension is too slow - aim for 0.2-0.4 seconds")
-    elif extension_time < 0.15:
-        feedback.append("⚡ Very fast extension! Good snap on your jab")
-    else:
-        feedback.append("✅ Good extension timing")
-    
-    if return_time > 0.4:
-        feedback.append("⚠️ Return your jab to guard position faster for better defense")
-    else:
-        feedback.append("✅ Good return speed to guard position")
-    
-    # 2. Hip Rotation Analysis
     hip_rotations = [frame['hip_rotation'] for frame in frame_data]
-    max_hip_rotation = float(max(hip_rotations))
-    avg_hip_rotation = float(np.mean(hip_rotations))
     
-    analysis['hip_rotation'] = {
-        'max_rotation_degrees': max_hip_rotation,
-        'average_rotation': avg_hip_rotation,
-        'rotation_range': float(max(hip_rotations) - min(hip_rotations))
+    # Find the most extended position (minimum angle)
+    most_extended_frame = int(np.argmin(arm_angles))
+    max_extension_angle = float(max(arm_angles))
+    
+    analysis = {
+        'analysis_type': 'single_sequence',
+        'summary': {
+            'total_frames_analyzed': len(frame_data),
+            'video_duration': float(frame_data[-1]['timestamp']),
+            'max_extension_angle': max_extension_angle,
+            'max_hip_rotation': float(max(hip_rotations))
+        },
+        'feedback': [
+            "⚠️ Could not detect individual punches",
+            "📊 Analyzed as single sequence",
+            f"💪 Maximum arm extension: {max_extension_angle:.1f}°",
+            f"🔄 Maximum hip rotation: {max(hip_rotations):.1f}°",
+            "💡 Try recording with clearer punch separation for better analysis"
+        ]
     }
     
-    if max_hip_rotation < 15:
-        feedback.append("🔄 Rotate your hips more for additional power - aim for 25-35 degrees")
-    elif max_hip_rotation > 45:
-        feedback.append("⚠️ Too much hip rotation - you might be over-rotating")
+    return analysis
+
+def generate_overall_feedback(individual_analyses, quality_scores):
+    """Generate overall feedback across all punches"""
+    
+    feedback = []
+    avg_score = np.mean(quality_scores)
+    
+    # Overall performance assessment
+    if avg_score >= 80:
+        feedback.append("🥊 Excellent overall technique! Your fundamentals are very solid")
+    elif avg_score >= 65:
+        feedback.append("👍 Good technique with room for refinement")
+    elif avg_score >= 50:
+        feedback.append("📚 Several areas for improvement - focus on the basics")
     else:
-        feedback.append("✅ Good hip rotation contributing to punch power")
+        feedback.append("🔧 Significant technique improvements needed")
     
-    # 3. Foot Movement Analysis
-    foot_separations = [frame['foot_separation'] for frame in frame_data]
-    foot_movement = float(max(foot_separations) - min(foot_separations))
-    
-    analysis['footwork'] = {
-        'foot_movement_range': foot_movement,
-        'stable_stance': bool(foot_movement < 0.1)  # Convert to bool
-    }
-    
-    if foot_movement > 0.15:
-        feedback.append("👣 Excessive foot movement detected - try to maintain stable stance")
+    # Consistency analysis
+    score_std = np.std(quality_scores)
+    if score_std < 10:
+        feedback.append("✅ Very consistent technique across punches")
+    elif score_std < 20:
+        feedback.append("⚡ Reasonably consistent with some variation")
     else:
-        feedback.append("✅ Good stable stance throughout the punch")
+        feedback.append("⚠️ Inconsistent technique - focus on repeatable form")
     
-    # 4. Weight Distribution
-    weight_shifts = [frame['weight_shift'] for frame in frame_data]
-    max_weight_shift = float(max(weight_shifts))
+    # Best punch identification
+    best_punch_idx = np.argmax(quality_scores)
+    feedback.append(f"⭐ Your best punch was #{best_punch_idx + 1} (Score: {quality_scores[best_punch_idx]})")
     
-    analysis['balance'] = {
-        'max_weight_shift': max_weight_shift,
-        'maintains_balance': bool(max_weight_shift < 0.2)  # Convert to bool
-    }
+    # Common issues analysis
+    timing_issues = sum(1 for analysis in individual_analyses 
+                       if any("slow" in fb.lower() for fb in analysis['feedback']))
+    if timing_issues >= len(individual_analyses) * 0.5:
+        feedback.append("⏱️ Focus on punch speed and timing")
     
-    if max_weight_shift > 0.25:
-        feedback.append("⚖️ Significant weight shift detected - try to maintain center balance")
-    else:
-        feedback.append("✅ Good balance maintained")
+    balance_issues = sum(1 for analysis in individual_analyses 
+                        if not analysis['balance']['maintains_balance'])
+    if balance_issues >= len(individual_analyses) * 0.5:
+        feedback.append("⚖️ Work on maintaining balance throughout punches")
     
-    # 5. Extension Analysis
-    hand_extensions = [frame['hand_extension'] for frame in frame_data]
-    max_extension = float(max(hand_extensions))
-    extension_consistency = float(np.std(hand_extensions))
+    return feedback
+
+def generate_recommendations(individual_analyses):
+    """Generate specific training recommendations"""
     
-    analysis['extension'] = {
-        'max_reach': max_extension,
-        'consistency': extension_consistency,
-        'full_extension_achieved': bool(max(arm_angles) > 160)  # Convert to bool
-    }
+    recommendations = []
     
-    if max(arm_angles) < 160:
-        feedback.append("💪 Extend your arm more fully for maximum reach and power")
-    else:
-        feedback.append("✅ Good full arm extension")
+    # Analyze common weaknesses
+    extension_issues = sum(1 for a in individual_analyses 
+                          if a['timing']['max_extension_angle'] < 160)
+    if extension_issues >= len(individual_analyses) * 0.5:
+        recommendations.append({
+            'area': 'Arm Extension',
+            'issue': 'Not reaching full extension',
+            'suggestion': 'Practice shadow boxing with focus on full arm extension',
+            'priority': 'High'
+        })
     
-    # 6. Chin Protection
-    chin_protections = [frame['chin_protection'] for frame in frame_data]
-    avg_chin_protection = float(np.mean(chin_protections))
+    timing_issues = sum(1 for a in individual_analyses 
+                       if a['timing']['extension_time'] > 0.4)
+    if timing_issues >= len(individual_analyses) * 0.5:
+        recommendations.append({
+            'area': 'Punch Speed',
+            'issue': 'Slow punch execution',
+            'suggestion': 'Practice rapid jabs with lighter resistance',
+            'priority': 'Medium'
+        })
     
-    analysis['defense'] = {
-        'average_chin_protection': avg_chin_protection,
-        'shoulder_guards_chin': bool(avg_chin_protection < 0)  # Convert to bool
-    }
+    hip_issues = sum(1 for a in individual_analyses 
+                    if a['hip_rotation']['max_rotation_degrees'] < 15)
+    if hip_issues >= len(individual_analyses) * 0.5:
+        recommendations.append({
+            'area': 'Hip Rotation',
+            'issue': 'Insufficient hip engagement',
+            'suggestion': 'Practice hip rotation drills and core strengthening',
+            'priority': 'High'
+        })
     
-    if avg_chin_protection > 0:
-        feedback.append("🛡️ Keep your non-punching shoulder higher to protect your chin")
-    else:
-        feedback.append("✅ Good chin protection with shoulder position")
-    
-    # Overall Assessment
-    good_feedback = len([f for f in feedback if "✅" in f])
-    warning_feedback = len([f for f in feedback if "⚠️" in f])
-    
-    if good_feedback >= 4:
-        feedback.insert(0, "🥊 Excellent technique! Your fundamentals are solid")
-    elif warning_feedback >= 3:
-        feedback.insert(0, "📚 Several areas for improvement - focus on the basics")
-    else:
-        feedback.insert(0, "👍 Good punch with room for refinement")
-    
-    analysis['feedback'] = feedback
-    
-    # Convert all numpy types in the analysis
-    return convert_numpy_types(analysis)
+    return recommendations
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
