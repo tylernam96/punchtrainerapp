@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Video Upload</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 40px; 
+            background-color: #f5f5f5;
+        }
+        .container { 
+            max-width: 800px; 
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-weight: bold;
+        }
+        .loading { 
+            background: #e3f2fd; 
+            color: #1976d2; 
+            border-left: 4px solid #2196f3;
+        }
+        .success { 
+            background: #e8f5e8; 
+            color: #2e7d32; 
+            border-left: 4px solid #4caf50;
+        }
+        .error { 
+            background: #ffebee; 
+            color: #c62828; 
+            border-left: 4px solid #f44336;
+        }
+        
+        .upload-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        button { 
+            background: #2196f3;
+            color: white;
+            padding: 12px 24px; 
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        button:hover {
+            background: #1976d2;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        #results { 
+            margin-top: 30px; 
+        }
+        
+        .analysis-section {
+            background: #f9f9f9;
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .analysis-section h4 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .feedback-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feedback-list li {
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 5px;
+            background: white;
+            border-left: 3px solid #4caf50;
+        }
+        
+        .tips {
+            background: #fff3e0;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #ff9800;
+        }
+        
+        .tips ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🥊 Punch Trainer - Advanced Analysis</h1>
+        
+        <div class="upload-section">
+            <h3>Upload Your Punch Video</h3>
+            <form id="uploadForm">
+                <div>
+                    <input type="file" id="videoFile" name="video" accept="video/*" required>
+                </div>
+                <button type="submit" id="analyzeBtn">Analyze Video</button>
+            </form>
+        </div>
+        
+        <div id="status"></div>
+        <div id="results"></div>
+        
+        <div class="tips">
+            <h3>📋 Recording Tips for Best Analysis:</h3>
+            <ul>
+                <li><strong>Duration:</strong> 5-10 seconds</li>
+                <li><strong>Angle:</strong> Side view works best</li>
+                <li><strong>Visibility:</strong> Make sure you're clearly visible</li>
+                <li><strong>Lighting:</strong> Good lighting helps detection</li>
+                <li><strong>Technique:</strong> Throw 2-3 clear jabs</li>
+                <li><strong>Background:</strong> Plain background is ideal</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('videoFile');
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            
+            if (!fileInput.files[0]) {
+                statusDiv.innerHTML = '<div class="error">Please select a video file</div>';
+                return;
+            }
+            
+            // Show loading status
+            statusDiv.innerHTML = '<div class="loading">🔄 Uploading and analyzing video... This may take 30-60 seconds.</div>';
+            resultsDiv.innerHTML = '';
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('video', fileInput.files[0]);
+            
+            try {
+                // Upload and analyze
+                const response = await fetch('http://localhost:3000/analyze-video', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    statusDiv.innerHTML = '<div class="success">✅ Analysis complete!</div>';
+                    
+                    const analysis = result.analysis;
+                    
+                    resultsDiv.innerHTML = `
+                        <h2>📊 Detailed Analysis Results</h2>
+                        
+                        <div class="analysis-section">
+                            <h4>⏱️ Timing Analysis</h4>
+                            <div class="metric">
+                                <span><strong>Extension Time:</strong></span>
+                                <span>${analysis.timing.extension_time_seconds.toFixed(2)}s (${analysis.timing.extension_frames} frames)</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Return Time:</strong></span>
+                                <span>${analysis.timing.return_time_seconds.toFixed(2)}s (${analysis.timing.return_frames} frames)</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Max Extension Angle:</strong></span>
+                                <span>${analysis.timing.max_extension_angle.toFixed(1)}°</span>
+                            </div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>🔄 Hip Rotation</h4>
+                            <div class="metric">
+                                <span><strong>Maximum Rotation:</strong></span>
+                                <span>${analysis.hip_rotation.max_rotation_degrees.toFixed(1)}°</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Average Rotation:</strong></span>
+                                <span>${analysis.hip_rotation.average_rotation.toFixed(1)}°</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Rotation Range:</strong></span>
+                                <span>${analysis.hip_rotation.rotation_range.toFixed(1)}°</span>
+                            </div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>👣 Footwork & Balance</h4>
+                            <div class="metric">
+                                <span><strong>Stance Stability:</strong></span>
+                                <span>${analysis.footwork.stable_stance ? '✅ Stable' : '⚠️ Movement detected'}</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Weight Balance:</strong></span>
+                                <span>${analysis.balance.maintains_balance ? '✅ Well balanced' : '⚠️ Weight shift detected'}</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Max Weight Shift:</strong></span>
+                                <span>${(analysis.balance.max_weight_shift * 100).toFixed(1)}%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>💪 Extension & Defense</h4>
+                            <div class="metric">
+                                <span><strong>Full Extension Achieved:</strong></span>
+                                <span>${analysis.extension.full_extension_achieved ? '✅ Yes' : '⚠️ Needs improvement'}</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Maximum Reach:</strong></span>
+                                <span>${(analysis.extension.max_reach * 100).toFixed(1)}% of arm length</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Chin Protection:</strong></span>
+                                <span>${analysis.defense.shoulder_guards_chin ? '✅ Good' : '⚠️ Needs work'}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>📝 Personalized Feedback</h4>
+                            <ul class="feedback-list">
+                                ${analysis.feedback.map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>
+                        
+                        <div class="analysis-section">
+                            <h4>📈 Video Stats</h4>
+                            <div class="metric">
+                                <span><strong>Total Frames:</strong></span>
+                                <span>${result.total_frames}</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Analyzed Frames:</strong></span>
+                                <span>${result.analyzed_frames}</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Duration:</strong></span>
+                                <span>${result.duration_seconds.toFixed(2)}s</span>
+                            </div>
+                            <div class="metric">
+                                <span><strong>Frame Rate:</strong></span>
+                                <span>${result.fps.toFixed(1)} FPS</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    statusDiv.innerHTML = `<div class="error">❌ Error: ${result.error || 'Analysis failed'}</div>`;
+                }
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error">🌐 Network error: ${error.message}</div>`;
+                console.error('Upload error:', error);
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Video';
+            }
+        });
+    </script>
+</body>
+</html>
